@@ -51,6 +51,9 @@ main{padding:16px 16px 100px; max-width:640px; margin:0 auto;}
   font-size:20px; font-weight:700; margin:22px 2px 10px; letter-spacing:-0.01em;
 }
 .section-title:first-child{margin-top:2px;}
+.section-title.collapsible{cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none;}
+.collapse-chevron{display:inline-block; color:var(--label3); font-size:15px; transition:transform .25s ease;}
+.collapse-chevron.collapsed{transform:rotate(-90deg);}
 
 /* Fasting ring */
 .ring-card{display:flex; flex-direction:column; align-items:center; padding:26px 18px;}
@@ -69,7 +72,7 @@ main{padding:16px 16px 100px; max-width:640px; margin:0 auto;}
 .cal-strip::-webkit-scrollbar{display:none;}
 .cal-day{
   flex:0 0 auto; width:54px; padding:10px 0 8px; border-radius:14px; background:var(--bg2);
-  display:flex; flex-direction:column; align-items:center; gap:6px;
+  display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer;
 }
 .cal-day.today{background:var(--blue);}
 .cal-day .dname{font-size:11px; color:var(--label2); text-transform:uppercase; font-weight:600;}
@@ -428,6 +431,39 @@ function fmtHM(mins){
   const h = Math.floor(mins/60), m = mins%60;
   return h+'h '+pad(m)+'m';
 }
+function showDayPreview(offset){
+  const d = new Date(); d.setDate(d.getDate()+offset);
+  const wo = WORKOUTS[d.getDay()];
+  const dLabel = DAY_NAMES[d.getDay()] + ' ' + d.getDate();
+
+  let html = '<h2>'+(offset===0 ? 'Hoy' : dLabel)+'</h2>';
+  html += '<div class="subline">'+wo.tagLabel+'</div>';
+
+  if(wo.type === 'gym'){
+    html += '<div class="note-box" style="margin-bottom:4px;"><strong>'+wo.muscles+'</strong></div>';
+    html += '<div style="margin-top:10px;">';
+    wo.exercises.forEach(e => {
+      html += '<div class="idea-row"><div class="idea-dot"></div><div class="it"><strong>'+e.name+'</strong> · '+e.sets+' series × '+e.reps+'</div></div>';
+    });
+    html += '</div>';
+  } else if(wo.type === 'run'){
+    html += '<div class="note-box">'+wo.duration+'. '+wo.note+'</div>';
+  } else {
+    html += '<div style="margin-top:6px;">';
+    wo.activities.forEach(a => {
+      html += '<div class="idea-row"><div class="idea-dot"></div><div class="it">'+a+'</div></div>';
+    });
+    html += '</div>';
+  }
+
+  if(offset === 0 && wo.type === 'gym'){
+    html += '<button class="complete-btn" id="goToGym" style="margin-top:16px; background:var(--blue);">Ir a Gym</button>';
+  }
+
+  openSheet(html);
+  const goBtn = document.getElementById('goToGym');
+  if(goBtn) goBtn.addEventListener('click', () => { closeSheet(); setTab('gym'); });
+}
 function renderHoy(){
   const now = new Date();
   const state = fastWindowState(now);
@@ -455,7 +491,7 @@ function renderHoy(){
   for(let i=0;i<7;i++){
     const d = new Date(now); d.setDate(now.getDate()+i);
     const wo = WORKOUTS[d.getDay()];
-    html += '<div class="cal-day'+(i===0?' today':'')+'">';
+    html += '<div class="cal-day'+(i===0?' today':'')+'" data-day-offset="'+i+'">';
     html += '<div class="dname">'+DAY_NAMES[d.getDay()]+'</div>';
     html += '<div class="dnum">'+d.getDate()+'</div>';
     html += '<div class="cal-tag tag-'+wo.tag+'"></div>';
@@ -510,6 +546,9 @@ function renderHoy(){
   document.getElementById('tab-hoy').innerHTML = html;
 
   document.getElementById('hoyWorkoutCard').addEventListener('click', () => setTab('gym'));
+  document.querySelectorAll('#tab-hoy .cal-day').forEach(el => {
+    el.addEventListener('click', () => showDayPreview(parseInt(el.dataset.dayOffset, 10)));
+  });
   document.querySelectorAll('#tab-hoy .supp-circle').forEach(el => {
     el.addEventListener('click', () => {
       const done = toggleSuppDone(TODAY_KEY, el.dataset.suppIdx);
@@ -612,7 +651,7 @@ function openExerciseModal(wo, idx){
 
   let media = '';
   if(EX_LOCAL_MEDIA[e.name]){
-    media = '<img src="'+EX_LOCAL_MEDIA[e.name]+'" onerror="this.parentElement.innerHTML=\''+stickFigureSVG().replace(/'/g,"\\'")+'\'">';
+    media = '<img id="exMediaImg" src="'+EX_LOCAL_MEDIA[e.name]+'">';
   } else {
     media = stickFigureSVG();
   }
@@ -636,6 +675,13 @@ function openExerciseModal(wo, idx){
   html += '<button class="complete-btn'+(done?' done':'')+'" id="completeBtn">'+(done ? 'Marcar como pendiente' : 'Marcar como completado')+'</button>';
 
   openSheet(html);
+
+  const mediaImg = document.getElementById('exMediaImg');
+  if(mediaImg){
+    mediaImg.addEventListener('error', () => {
+      mediaImg.parentElement.innerHTML = stickFigureSVG();
+    });
+  }
 
   document.getElementById('wtMinus').addEventListener('click', () => {
     currentWeight = Math.max(0, currentWeight - 2.5);
@@ -744,7 +790,9 @@ function renderDieta(){
   html += '<div class="section-title">Evitar siempre</div><div class="card">' + pillsHTML(FOOD_AVOID,'avoid') + '</div>';
 
   /* NEW: Lista de la compra */
-  html += '<div class="section-title">Lista de la compra</div><div class="card" id="shopCard">';
+  const shopCollapsed = loadJSON('shopListCollapsed', false);
+  html += '<div class="section-title collapsible" id="shopToggle">Lista de la compra<span class="collapse-chevron'+(shopCollapsed?' collapsed':'')+'">⌄</span></div>';
+  html += '<div class="card" id="shopCard" style="'+(shopCollapsed?'display:none;':'')+'">';
   const shopState = loadJSON('shopList', {});
   SHOP_CATEGORIES.forEach(cat => {
     html += '<div class="meal-cat"><h3>'+cat.name+'</h3></div>';
@@ -768,6 +816,12 @@ function renderDieta(){
 
   document.getElementById('tab-dieta').innerHTML = html;
 
+  document.getElementById('shopToggle').addEventListener('click', () => {
+    const collapsed = !loadJSON('shopListCollapsed', false);
+    saveJSON('shopListCollapsed', collapsed);
+    document.getElementById('shopCard').style.display = collapsed ? 'none' : '';
+    document.querySelector('#shopToggle .collapse-chevron').classList.toggle('collapsed', collapsed);
+  });
   document.querySelectorAll('#tab-dieta .shop-item').forEach(el => {
     el.addEventListener('click', () => {
       const key = el.dataset.shopKey;
